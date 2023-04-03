@@ -1,7 +1,10 @@
 from multiprocessing import Process
 from multiprocessing.managers import BaseManager
 from numpy import arange
+from multiprocessing import Process, Lock, Array, cpu_count
 from threading import Thread
+import sys, math, time
+
 
 class QueueManager(BaseManager):
     pass
@@ -16,46 +19,56 @@ m = QueueManager(address=(address, port), authkey=password.encode('utf-8'))
 m.connect()
 queue = m.in_queue()
 queueOut = m.out_queue()
-
-
-def create_Process(in_q, out_q, n_process):
-    processes = [Process(target=mnoz, args=(in_q, out_q)) for _ in range(0, n_process)]
-    for process in range(0, nmyProcess):
-       processes[process].start()
-    for process in range(0, nmyProcess):
-      processes[process].join()
-
-
-#Funkcja do mnozenia, zapis i odczut danych z kolejki
-def mnoz(in_q, out_q):
-    dane = in_q.get()
-    
-    # if dane is None:
-    #     queueOut.task_done()
-
-    # A = dane[0]
-    # X = dane[1]
-
-    # nrows = len(A)
-    # ncols = len(A[0])
-    # y = []
-    # for i in arange(nrows):
-    #     s = 0
-    #     for c in range(0, ncols):
-    #         s += A[i][c] * X[c][0]
-    #     y.append(s)
-    
-    # queueOut.put(y)
-    # queueOut.task_done()
-
+lock = Lock()
+processes = []
 
 #1.Odczyt ilosci procesow do utworzenia
-nmyProcess = queue.get()
-print(f"Liczba procesow {nmyProcess}, typ{type(nmyProcess)}\n\n")
+ncpus = queue.get()
+
+#Funkcja do mnozenia, zapis i odczut danych z kolejki
+def mnoz(workForProccess, matrix, vec, lock, solution):
+    rowsNumber = len(matrix)
+    columnsNumber = len(matrix[0])
+    localValues = [0 * x for x in range(rowsNumber)]
+    for i in range(workForProccess[0], workForProccess[1]):
+        a = int(i / columnsNumber)
+        b = int(i % columnsNumber)
+        localValues[a] += matrix[a][b] * vec[b][0]
+    lock.acquire()
+    for i in range(len(localValues)):
+        solution[i] += localValues[i]
+    lock.release()
 
 
-#2.Uruchomienie procesow
-t = Thread(target=create_Process, args=(queue, queueOut, nmyProcess))
-t.start()
-t.join()
+#funkcja do podzialu zakresu liczenia
+def Divide(ncpus, dataNumber):
+    divide = []
+    step = int(dataNumber/ncpus)
+    lastStep = dataNumber % ncpus
+    for i in range(0, ncpus + 1):
+        divide.append(i * step)
+    if (lastStep != 0):
+        divide[len(divide) - 1] += lastStep
+    return divide
 
+
+#odczyt danych do przetworzenia
+print("Liczba procesow = ", ncpus)
+while True:
+    matrix = queue.get()
+    print("Odczyt = ", matrix)
+    if type(matrix) is tuple:
+            solution = Array('d', range(len(matrix[1])))
+            for i in range(len(matrix[1])):
+                solution[i] = 0
+            division = Divide(ncpus, len(matrix[1]) * len(matrix[1][0]))
+            for num in range(ncpus):
+                workForProccess = (division[num], division[num + 1])
+                process = Process(target=mnoz, args=(workForProccess, matrix[1], matrix[2], lock, solution))
+                processes.append(process)
+                process.start()        
+            for process in processes:
+                process.join()
+            queueOut.put((matrix[0], solution[:]))
+    else:
+        break

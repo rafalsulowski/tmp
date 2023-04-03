@@ -1,5 +1,6 @@
 from multiprocessing.managers import BaseManager
 from numpy import arange
+import time
 import sys, math
 
 
@@ -37,30 +38,54 @@ def read(fname):
 
 
 ncpus = int(sys.argv[1]) if len(sys.argv) > 1 else 2
+queue.put(ncpus) #przeslanie inforamcaji ile procesow uruchomic
 fnameA = sys.argv[2] if len(sys.argv) > 2 else "A.dat"
 fnameX = sys.argv[3] if len(sys.argv) > 3 else "X.dat"
+
 
 #1.Wczytanie macierzy i wektora do pamieci
 A = read(fnameA)
 X = read(fnameX)
 
+
+start = time.time()
 #2. Kalkulacja zakresow liczenia procesow
 print(f"liczba procesow = {ncpus}\n\n")
-print(f"len = {len(X[0:10])}")
-nRows = len(X)
-indexPerProcess = math.floor(nRows / ncpus)
+nRows = len(A)
+step = math.floor(nRows / ncpus)
+lastStep = nRows & ncpus
 
-#3.Zapis zakresow i danych do in_queue
-queue.put(6)
-queue.put([X[0:10], A[0:10]])
-queue.put([X[10:20], A[0:10]])
-queue.put([X[20:30], A[0:10]])
-queue.put([X[30:40], A[0:10]])
-queue.put([X[40:50], A[0:10]])
-queue.put([X[50:60], A[0:10]])
 
-#4.Oczekiwanie na wyniki
-print("Oczekiwanie na wyniki...\n")
-for x in range(1, 6):
-    result = queueOut.get()
-    print(f"wynik {x}: {result}\n\n")
+#podzial po wierszach 
+tab = []
+for i in range(0, ncpus + 1):
+	tab.append(i * step)
+	if (lastStep != 0):
+		tab[len(tab) - 1] += lastStep
+
+
+#wyspanie podzialu do koljeki
+for i in range (0, ncpus):
+    queue.put((i, A[tab[i]:tab[i+1]], X))
+
+
+#oczekiwanie na wyniki
+tmpResult = [0 * x for x in range(ncpus)]
+i = 0
+time.sleep(2)
+while i != ncpus:
+        result = queueOut.get()
+        if type(result) is tuple:
+           tmpResult[result[0]] = result[1]
+           i += 1 
+
+#zebranie roziwazan z poszczegolnych wynikow czastkowych
+solution = []
+for result in tmpResult:
+	solution.extend(result)
+
+end = time.time()
+
+#wypisanie wyniku
+print("Result = ", solution)
+print(f"Czas wykonania dla {ncpus} wynosi: {end - start - 1}\n\n")
